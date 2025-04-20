@@ -8,7 +8,7 @@ set -o pipefail
 COUNTER_TMP_FILE="/tmp/.rerun_test_command_tmp_file"
 
 
-sleep 0.3
+sleep 1
 
 
 if [[ ! -e "${COUNTER_TMP_FILE}" ]]; then
