@@ -23,11 +23,23 @@ struct MetricsThreadArgs {
 };
 
 
+static unsigned int verbose = 0;
+
+
+#define LOG(fmt, ...) \
+    do { \
+        if (verbose) { \
+            fprintf(stderr, "[DEBUG] rerun: " fmt "\n", ##__VA_ARGS__); \
+        } \
+    } while (0)
+
+
+
 void *metrics_server_handler(void *raw_args)
 {
     struct MetricsThreadArgs *args = (struct MetricsThreadArgs *) raw_args;
 
-    printf("Start metrics server at %s:%d...\n", args->host, args->port);
+    LOG("Start metrics server at %s:%d...", args->host, args->port);
 
     struct sockaddr_in address;
     socklen_t addrlen = sizeof(address);
@@ -54,7 +66,7 @@ void *metrics_server_handler(void *raw_args)
         exit(1);
     }
 
-    printf("Metrics server: listening...\n");
+    LOG("Metrics server: listening...");
 
     while (1) {
         int client_fd = accept(server_fd, (struct sockaddr*)&address, &addrlen);
@@ -68,7 +80,7 @@ void *metrics_server_handler(void *raw_args)
 
         // TODO: Handle "GET /" only.
         read(client_fd, buffer, sizeof(buffer) - 1);
-        printf("Received request:\n%s\n", buffer);
+        LOG("Received request:\n%s", buffer);
 
         char stats_buffer[64] = {0};
         sprintf(
@@ -102,10 +114,11 @@ int main(int argc, char *argv[])
     struct Metrics metrics = {0};
 
     struct option long_options[] = {
-        {"repeat",  required_argument, 0, 'r'},
+        {"repeat",              required_argument, 0, 'r'},
         {"retries-on-failure",  required_argument, 0, 'f'},
-        {"metrics-host",  required_argument, 0, 'h'},
-        {"metrics-port",  required_argument, 0, 'p'},
+        {"metrics-host",        required_argument, 0, 'h'},
+        {"metrics-port",        required_argument, 0, 'p'},
+        {"verbose",             no_argument,       0, 'v'},
         {0, 0, 0, 0}
     };
 
@@ -115,7 +128,7 @@ int main(int argc, char *argv[])
     int metrics_port = 3535;
 
     int opt;
-    while ((opt = getopt_long(argc, argv, "r:f:", long_options, NULL)) != -1) {
+    while ((opt = getopt_long(argc, argv, "r:f:h:p:v", long_options, NULL)) != -1) {
         switch (opt) {
             case 'r':
                 repeat = atoi(optarg);
@@ -129,8 +142,11 @@ int main(int argc, char *argv[])
             case 'p':
                 metrics_port = atoi(optarg);
                 break;
+            case 'v':
+                verbose = 1;
+                break;
             default:
-                fprintf(stderr, "Usage: %s [--repeat <int>] [--retries-on-failure <int>] [--metrics-host <string>] [--metrics-port <int>]\n", argv[0]);
+                fprintf(stderr, "Usage: %s [--repeat <int>] [--retries-on-failure <int>] [--metrics-host <string>] [--metrics-port <int>] [--verbose]\n", argv[0]);
                 return 1;
         }
     }
@@ -170,7 +186,7 @@ int main(int argc, char *argv[])
 
             if (WIFEXITED(status)) {
                 int exit_code = WEXITSTATUS(status);
-                printf("Child process exited with code: %d\n", exit_code);
+                LOG("Child process exited with code: %d", exit_code);
                 if (exit_code != 0) {
                     metrics.failure_total++;
                     if (retries_on_failure == 0) {
@@ -181,7 +197,7 @@ int main(int argc, char *argv[])
                     metrics.success_total++;
                 }
             } else {
-                printf("Child process exited abnormally\n");
+                LOG("Child process exited abnormally");
                 metrics.failure_total++;
                 if (retries_on_failure == 0) {
                     break;
