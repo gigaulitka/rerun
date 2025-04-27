@@ -5,9 +5,12 @@
 #include <string.h>
 #include <unistd.h>
 #include <sys/wait.h>
+#include <sys/socket.h>
 #include <pthread.h>
 #include <netinet/in.h>
 #include <arpa/inet.h>
+#include <poll.h>
+#include <fcntl.h>
 #define _GNU_SOURCE  // For getopt_long
 #include <getopt.h>
 
@@ -22,6 +25,7 @@ struct MetricsThreadArgs {
     const char *host;
     int port;
     struct Metrics *metrics;
+    int exit_pipe_fd;
 };
 
 
@@ -43,15 +47,17 @@ void *metrics_server_handler(void *raw_args)
 
     LOG("Start metrics server at %s:%d...", args->host, args->port);
 
-    struct sockaddr_in address;
-    socklen_t addrlen = sizeof(address);
-
     int server_fd = socket(AF_INET, SOCK_STREAM, 0);
     if (server_fd == 0) {
         perror("socket failed");
         exit(1);
     }
+    int opt = 1;
+    setsockopt(server_fd, SOL_SOCKET, SO_REUSEADDR, &opt, sizeof(opt));
+    int flags = fcntl(server_fd, F_GETFL, 0);
+    fcntl(server_fd, F_SETFL, flags | O_NONBLOCK);
 
+    struct sockaddr_in address;
     address.sin_family = AF_INET;
     address.sin_addr.s_addr = inet_addr(args->host);
     address.sin_port = htons(args->port);
@@ -61,53 +67,122 @@ void *metrics_server_handler(void *raw_args)
         close(server_fd);
         exit(1);
     }
-
     if (listen(server_fd, 1) < 0) {
         perror("listen");
         close(server_fd);
         exit(1);
     }
 
+    struct pollfd poll_fds[2];
+
+    poll_fds[0].fd = server_fd;
+    poll_fds[0].events = POLLIN;
+
+    poll_fds[1].fd = args->exit_pipe_fd;
+    poll_fds[1].events = POLLIN;
+
     LOG("Metrics server: listening...");
 
     while (1) {
-        int client_fd = accept(server_fd, (struct sockaddr*)&address, &addrlen);
-        if (client_fd < 0) {
-            perror("accept");
-            close(server_fd);
-            exit(1);
+        int res = poll(poll_fds, 2, -1);
+        if (res == -1) {
+            perror("poll");
+            break;
         }
 
-        char buffer[1024] = {0};
+        if (poll_fds[1].revents & POLLIN) {
+            LOG("Terminate metrics server.");
+            break;
+        }
 
-        // TODO: Handle "GET /" only.
-        read(client_fd, buffer, sizeof(buffer) - 1);
-        LOG("Received request:\n%s", buffer);
+        if (poll_fds[0].revents & POLLIN) {
+            socklen_t addrlen = sizeof(address);
+            int client_fd = accept(server_fd, (struct sockaddr*)&address, &addrlen);
+            if (client_fd < 0) {
+                perror("accept");
+                close(server_fd);
+                exit(1);
+            }
 
-        char stats_buffer[64] = {0};
-        sprintf(
-            stats_buffer,
-            "success_total %d\nfailures_total %d\n",
-            args->metrics->success_total,
-            args->metrics->failure_total
-        );
+            char buffer[1024] = {0};
 
-        const char* response_tpl =
-            "HTTP/1.1 200 OK\r\n"
-            "Content-Type: text/plain\r\n"
-            "Content-Length: %d\r\n"
-            "Connection: close\r\n"
-            "\r\n"
-            "%s";
+            // TODO: Handle "GET /" only.
+            read(client_fd, buffer, sizeof(buffer) - 1);
+            LOG("Received request:\n%s", buffer);
 
-        snprintf(buffer, sizeof(buffer) - 1, response_tpl, strlen(stats_buffer), stats_buffer);
+            char stats_buffer[64] = {0};
+            sprintf(
+                stats_buffer,
+                "success_total %d\nfailures_total %d\n",
+                args->metrics->success_total,
+                args->metrics->failure_total
+            );
 
-        write(client_fd, buffer, strlen(buffer));
+            const char* response_tpl =
+                "HTTP/1.1 200 OK\r\n"
+                "Content-Type: text/plain\r\n"
+                "Content-Length: %d\r\n"
+                "Connection: close\r\n"
+                "\r\n"
+                "%s";
 
-        close(client_fd);
+            snprintf(buffer, sizeof(buffer) - 1, response_tpl, strlen(stats_buffer), stats_buffer);
+
+            write(client_fd, buffer, strlen(buffer));
+
+            close(client_fd);
+        }
     }
 
     close(server_fd);
+}
+
+
+int run_command(char **argv, int repeat, int retries_on_failure, struct Metrics* metrics)
+{
+    while (repeat == -1 || repeat--) {
+        pid_t pid = fork();
+
+        if (pid < 0) {
+            perror("fork");
+            return 1;
+        }
+
+        if (pid == 0) {
+            execvp(argv[0], argv);
+            perror("execvp");
+            return 127;
+        } else {
+            int status;
+            if (waitpid(pid, &status, 0) == -1) {
+                perror("waitpid");
+                return 1;
+            }
+
+            if (WIFEXITED(status)) {
+                int exit_code = WEXITSTATUS(status);
+                LOG("Child process exited with code: %d", exit_code);
+                if (exit_code != 0) {
+                    metrics->failure_total++;
+                    if (retries_on_failure == 0) {
+                        break;
+                    }
+                    retries_on_failure--;
+                } else {
+                    metrics->success_total++;
+                }
+            } else {
+                LOG("Child process exited abnormally");
+                metrics->failure_total++;
+                if (retries_on_failure == 0) {
+                    break;
+                }
+                retries_on_failure--;
+            }
+        }
+    }
+
+    return 0;
 }
 
 
@@ -153,61 +228,39 @@ int main(int argc, char *argv[])
         }
     }
 
+    // Pipe to gracefully terminate metrics thread.
+    int metrics_thread_pipe_fd[2];
+
+    pthread_t metrics_thread;
+
     if (metrics_host != NULL) {
-        pthread_t metrics_thread;
+        pipe(metrics_thread_pipe_fd);
 
         struct MetricsThreadArgs args;
         args.host = metrics_host;
         args.port = metrics_port;
         args.metrics = &metrics;
+        args.exit_pipe_fd = metrics_thread_pipe_fd[0];
+
         if (pthread_create(&metrics_thread, NULL, metrics_server_handler, &args) != 0) {
             perror("pthread_create metrics_thread");
+            close(metrics_thread_pipe_fd[0]);
+            close(metrics_thread_pipe_fd[1]);
+
             return 1;
-        }
-        pthread_detach(metrics_thread);
-    }
-
-    while (repeat == -1 || repeat--) {
-        pid_t pid = fork();
-
-        if (pid < 0) {
-            perror("fork");
-            return 1;
-        }
-
-        if (pid == 0) {
-            execvp(argv[optind], &argv[optind]);
-            perror("execvp");
-            return 127;
-        } else {
-            int status;
-            if (waitpid(pid, &status, 0) == -1) {
-                perror("waitpid");
-                return 1;
-            }
-
-            if (WIFEXITED(status)) {
-                int exit_code = WEXITSTATUS(status);
-                LOG("Child process exited with code: %d", exit_code);
-                if (exit_code != 0) {
-                    metrics.failure_total++;
-                    if (retries_on_failure == 0) {
-                        break;
-                    }
-                    retries_on_failure--;
-                } else {
-                    metrics.success_total++;
-                }
-            } else {
-                LOG("Child process exited abnormally");
-                metrics.failure_total++;
-                if (retries_on_failure == 0) {
-                    break;
-                }
-                retries_on_failure--;
-            }
         }
     }
 
-    return 0;
+    int exit_code = run_command(&argv[optind], repeat, retries_on_failure, &metrics);
+
+    if (metrics_host != NULL) {
+        write(metrics_thread_pipe_fd[1], "x", 1);
+
+        pthread_join(metrics_thread, NULL);
+
+        close(metrics_thread_pipe_fd[0]);
+        close(metrics_thread_pipe_fd[1]);
+    }
+
+    return exit_code;
 }
