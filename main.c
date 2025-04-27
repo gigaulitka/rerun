@@ -40,37 +40,47 @@ static unsigned int verbose = 0;
     } while (0)
 
 
-
-void *metrics_server_handler(void *raw_args)
+void run_metrics_server(const char *host, int port, struct Metrics *metrics, int exit_pipe_fd)
 {
-    struct MetricsThreadArgs *args = (struct MetricsThreadArgs *) raw_args;
-
-    LOG("Start metrics server at %s:%d...", args->host, args->port);
+    LOG("Start metrics server at %s:%d...", host, port);
 
     int server_fd = socket(AF_INET, SOCK_STREAM, 0);
     if (server_fd == 0) {
         perror("socket failed");
-        exit(1);
+        return;
     }
     int opt = 1;
-    setsockopt(server_fd, SOL_SOCKET, SO_REUSEADDR, &opt, sizeof(opt));
+    if (setsockopt(server_fd, SOL_SOCKET, SO_REUSEADDR, &opt, sizeof(opt)) == -1) {
+        perror("setsockopt");
+        close(server_fd);
+        return;
+    }
     int flags = fcntl(server_fd, F_GETFL, 0);
-    fcntl(server_fd, F_SETFL, flags | O_NONBLOCK);
+    if (flags == -1) {
+        perror("fcntl (get)");
+        close(server_fd);
+        return;
+    }
+    if (fcntl(server_fd, F_SETFL, flags | O_NONBLOCK) == -1) {
+        perror("fcntl (set)");
+        close(server_fd);
+        return;
+    }
 
     struct sockaddr_in address;
     address.sin_family = AF_INET;
-    address.sin_addr.s_addr = inet_addr(args->host);
-    address.sin_port = htons(args->port);
+    address.sin_addr.s_addr = inet_addr(host);
+    address.sin_port = htons(port);
 
-    if (bind(server_fd, (struct sockaddr*)&address, sizeof(address)) < 0) {
+    if (bind(server_fd, (struct sockaddr*)&address, sizeof(address)) == -1) {
         perror("bind failed");
         close(server_fd);
-        exit(1);
+        return;
     }
-    if (listen(server_fd, 1) < 0) {
+    if (listen(server_fd, 1) == -1) {
         perror("listen");
         close(server_fd);
-        exit(1);
+        return;
     }
 
     struct pollfd poll_fds[2];
@@ -78,30 +88,28 @@ void *metrics_server_handler(void *raw_args)
     poll_fds[0].fd = server_fd;
     poll_fds[0].events = POLLIN;
 
-    poll_fds[1].fd = args->exit_pipe_fd;
+    poll_fds[1].fd = exit_pipe_fd;
     poll_fds[1].events = POLLIN;
 
     LOG("Metrics server: listening...");
 
     while (1) {
-        int res = poll(poll_fds, 2, -1);
-        if (res == -1) {
+        if (poll(poll_fds, 2, -1) == -1) {
             perror("poll");
             break;
         }
 
         if (poll_fds[1].revents & POLLIN) {
-            LOG("Terminate metrics server.");
             break;
         }
 
         if (poll_fds[0].revents & POLLIN) {
             socklen_t addrlen = sizeof(address);
             int client_fd = accept(server_fd, (struct sockaddr*)&address, &addrlen);
-            if (client_fd < 0) {
+            if (client_fd == -1) {
                 perror("accept");
                 close(server_fd);
-                exit(1);
+                return;
             }
 
             char buffer[1024] = {0};
@@ -111,11 +119,12 @@ void *metrics_server_handler(void *raw_args)
             LOG("Received request:\n%s", buffer);
 
             char stats_buffer[64] = {0};
-            sprintf(
+            snprintf(
                 stats_buffer,
+                sizeof(stats_buffer) - 1,
                 "success_total %d\nfailures_total %d\n",
-                args->metrics->success_total,
-                args->metrics->failure_total
+                metrics->success_total,
+                metrics->failure_total
             );
 
             const char* response_tpl =
@@ -135,6 +144,16 @@ void *metrics_server_handler(void *raw_args)
     }
 
     close(server_fd);
+
+    LOG("Stop metrics server.");
+}
+
+
+void *metrics_server_handler(void *raw_args)
+{
+    struct MetricsThreadArgs *args = (struct MetricsThreadArgs *) raw_args;
+    run_metrics_server(args->host, args->port, args->metrics, args->exit_pipe_fd);
+    return NULL;
 }
 
 
