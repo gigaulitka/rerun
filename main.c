@@ -52,38 +52,65 @@ void handle_http_request(int server_fd, struct sockaddr_in address, struct Metri
 
     char buffer[1024] = {0};
 
-    // TODO: Handle "GET /" only.
     read(client_fd, buffer, sizeof(buffer) - 1);
-    LOG("Received request:\n%s", buffer);
 
     const char *response_tpl =
-        "HTTP/1.1 200 OK\r\n"
+        "HTTP/1.1 %s\r\n"
         "Content-Type: text/plain\r\n"
         "Content-Length: %d\r\n"
         "Connection: close\r\n"
         "\r\n"
         "%s";
 
-    const char *metrics_tpl =
-        "success_total %d\n"
-        "failures_total %d\n";
+    if (strncmp(buffer, "GET /metrics ", strlen("GET /metrics ")) == 0) {
+        LOG("Metrics server: GET /metrics");
 
-    char metrics_buffer[128] = {0};
-    snprintf(
-        metrics_buffer,
-        sizeof(metrics_buffer) - 1,
-        metrics_tpl,
-        metrics->success_total,
-        metrics->failure_total
-    );
+        const char *metrics_tpl =
+            "success_total %d\n"
+            "failures_total %d\n";
 
-    snprintf(
-        buffer,
-        sizeof(buffer) - 1,
-        response_tpl,
-        strlen(metrics_buffer),
-        metrics_buffer
-    );
+        char metrics_buffer[128] = {0};
+        snprintf(
+            metrics_buffer,
+            sizeof(metrics_buffer) - 1,
+            metrics_tpl,
+            metrics->success_total,
+            metrics->failure_total
+        );
+
+        snprintf(
+            buffer,
+            sizeof(buffer) - 1,
+            response_tpl,
+            "200 OK",
+            strlen(metrics_buffer),
+            metrics_buffer
+        );
+    } else if (strncmp(buffer, "GET / ", strlen("GET / ")) == 0) {
+        LOG("Metrics server: GET /");
+
+        const char *body = "See /metrics.";
+        snprintf(
+            buffer,
+            sizeof(buffer) - 1,
+            response_tpl,
+            "200 OK",
+            strlen(body),
+            body
+        );
+    } else {
+        LOG("Metrics server: Unexpected request");
+
+        const char *body = "Not found.";
+        snprintf(
+            buffer,
+            sizeof(buffer) - 1,
+            response_tpl,
+            "404 Not Found",
+            strlen(body),
+            body
+        );
+    }
 
     write(client_fd, buffer, strlen(buffer));
 
