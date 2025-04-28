@@ -40,6 +40,57 @@ static unsigned int verbose = 0;
     } while (0)
 
 
+void handle_http_request(int server_fd, struct sockaddr_in address, struct Metrics *metrics)
+{
+    socklen_t addrlen = sizeof(address);
+    int client_fd = accept(server_fd, (struct sockaddr*)&address, &addrlen);
+    if (client_fd == -1) {
+        perror("accept");
+        close(server_fd);
+        return;
+    }
+
+    char buffer[1024] = {0};
+
+    // TODO: Handle "GET /" only.
+    read(client_fd, buffer, sizeof(buffer) - 1);
+    LOG("Received request:\n%s", buffer);
+
+    const char *response_tpl =
+        "HTTP/1.1 200 OK\r\n"
+        "Content-Type: text/plain\r\n"
+        "Content-Length: %d\r\n"
+        "Connection: close\r\n"
+        "\r\n"
+        "%s";
+
+    const char *metrics_tpl =
+        "success_total %d\n"
+        "failures_total %d\n";
+
+    char metrics_buffer[128] = {0};
+    snprintf(
+        metrics_buffer,
+        sizeof(metrics_buffer) - 1,
+        metrics_tpl,
+        metrics->success_total,
+        metrics->failure_total
+    );
+
+    snprintf(
+        buffer,
+        sizeof(buffer) - 1,
+        response_tpl,
+        strlen(metrics_buffer),
+        metrics_buffer
+    );
+
+    write(client_fd, buffer, strlen(buffer));
+
+    close(client_fd);
+}
+
+
 void run_metrics_server(const char *host, int port, struct Metrics *metrics, int exit_pipe_fd)
 {
     LOG("Start metrics server at %s:%d...", host, port);
@@ -104,42 +155,7 @@ void run_metrics_server(const char *host, int port, struct Metrics *metrics, int
         }
 
         if (poll_fds[0].revents & POLLIN) {
-            socklen_t addrlen = sizeof(address);
-            int client_fd = accept(server_fd, (struct sockaddr*)&address, &addrlen);
-            if (client_fd == -1) {
-                perror("accept");
-                close(server_fd);
-                return;
-            }
-
-            char buffer[1024] = {0};
-
-            // TODO: Handle "GET /" only.
-            read(client_fd, buffer, sizeof(buffer) - 1);
-            LOG("Received request:\n%s", buffer);
-
-            char stats_buffer[64] = {0};
-            snprintf(
-                stats_buffer,
-                sizeof(stats_buffer) - 1,
-                "success_total %d\nfailures_total %d\n",
-                metrics->success_total,
-                metrics->failure_total
-            );
-
-            const char* response_tpl =
-                "HTTP/1.1 200 OK\r\n"
-                "Content-Type: text/plain\r\n"
-                "Content-Length: %d\r\n"
-                "Connection: close\r\n"
-                "\r\n"
-                "%s";
-
-            snprintf(buffer, sizeof(buffer) - 1, response_tpl, strlen(stats_buffer), stats_buffer);
-
-            write(client_fd, buffer, strlen(buffer));
-
-            close(client_fd);
+            handle_http_request(server_fd, address, metrics);
         }
     }
 
