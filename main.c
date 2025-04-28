@@ -269,7 +269,10 @@ int main(int argc, char *argv[])
     pthread_t metrics_thread;
 
     if (metrics_host != NULL) {
-        pipe(metrics_thread_pipe_fd);
+        if (pipe(metrics_thread_pipe_fd) == -1) {
+            perror("pipe");
+            return 1;
+        }
 
         struct MetricsThreadArgs args;
         args.host = metrics_host;
