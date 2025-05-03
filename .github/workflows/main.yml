@@ -1,0 +1,23 @@
+name: Run Tests
+
+on:
+  push:
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+
+    steps:
+    - name: 📥 Checkout code
+      uses: actions/checkout@v3
+
+    - name: 🛠 Install dependencies (if needed)
+      run: |
+        sudo apt-get update
+        sudo apt-get install -y build-essential expect
+
+    - name: 👷 Build executable
+      run: make build
+
+    - name: 🧑‍💻 Run tests from Makefile
+      run: make test
