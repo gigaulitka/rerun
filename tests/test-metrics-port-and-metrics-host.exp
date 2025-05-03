@@ -1,0 +1,48 @@
+#!/usr/bin/expect -f
+
+set port 59412
+
+spawn ./rerun --repeat 16 --retries-on-failure 99999 --metrics-host 127.0.0.1 --metrics-port "$port" tests/exit_with_code.sh
+
+# Run exit_with_code.sh 10 times to set up success counter
+set repeats 0
+while {$repeats < 10} {
+    send "0\r"
+    incr repeats
+}
+
+# Run exit_with_code.sh with exit code 1 to set up failures counter
+set failures 0
+while {$failures < 5} {
+    send "1\r"
+    incr failures
+}
+
+# Wait for synchronization.
+exec /bin/sleep 0.1
+
+set result [exec curl -s "http://127.0.0.1:${port}/metrics"]
+if {[string match "*success_total 10*" $result]} {
+    puts "✅ success_total metric is correct"
+} else {
+    puts "❌ success_total metric is incorrect:\n$result"
+    exit 1
+}
+
+if {[string match "*failures_total 5*" $result]} {
+    puts "✅ failures_total metric is correct"
+} else {
+    puts "❌ failures_total metric is incorrect:\n$result"
+    exit 1
+}
+
+# Send 16'th input (--repeat 16) to finish
+send "0\r"
+
+set status [lindex [wait] 3]
+if {$status == 0} {
+    puts "✅ return code == 0"
+} else {
+    puts "❌ return code != 0 (was $status)"
+    exit 1
+}

@@ -1,0 +1,37 @@
+#!/usr/bin/expect -f
+
+spawn ./rerun --retries-on-failure 3 tests/exit_with_code.sh
+
+set prompts 0
+
+while {$prompts < 4} {
+    expect {
+        "exit with code:" {
+            send "1\r"
+            incr prompts
+        }
+        eof {
+            puts "❌ less than 3 retries on failure"
+            exit 1
+        }
+    }
+}
+
+expect {
+    "exit with code:" {
+        puts "❌ more than 3 retries on failure"
+        send "1\r"
+        exit 1
+    }
+    eof {
+        puts "✅ expected number of retries on failure"
+    }
+}
+
+set status [lindex [wait] 3]
+if {$status == 0} {
+    puts "✅ return code == 0"
+} else {
+    puts "❌ return code != 0 (was $status)"
+    exit 1
+}

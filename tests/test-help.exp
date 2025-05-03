@@ -1,0 +1,13 @@
+#!/usr/bin/expect -f
+
+spawn ./rerun --help
+
+expect {
+    "Usage: ./rerun \\\[--repeat <int>\\\] \\\[--retries-on-failure <int>\\\] \\\[--metrics-host <string>\\\] \\\[--metrics-port <int>\\\] \\\[--verbose\\\]" {
+        puts "✅ correct help message"
+    }
+    timeout {
+        puts "❌ incorrect help message"
+        exit 1
+    }
+}

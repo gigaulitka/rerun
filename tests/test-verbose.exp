@@ -1,0 +1,13 @@
+#!/usr/bin/expect -f
+
+spawn ./rerun --verbose --repeat 3 /bin/true
+
+expect {
+    "\\\[DEBUG\\\]" {
+        puts "✅ debug output enabled"
+    }
+    eof {
+        puts "❌ no debug output"
+        exit 1
+    }
+}
