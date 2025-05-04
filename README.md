@@ -1,34 +1,49 @@
+Restart and monitor the specified command.
+
 Usage
 -----
 
 ```
-rerun [OPTIONS] -- COMMAND [ARGS...]
-````
+rerun [OPTIONS] -- <command> [args...]
+```
 
-Runs and monitors the given command, restarts it automatically when it exits with status code 0. Exposes Prometheus-compatible metrics via an embedded HTTP server.
 Options:
-* --repeat (-r) N - Repeat the given command only N times. Default: repeat forewer.
-* --retries-on-failure (-f) N - Retry the given command N times if it fails. Default: do not repeat on failure.
-* --metrics-host (-h) HOST - Host to bind the metrics server. Do not start metrics server if not provided.
-* --metrics-port (-p) PORT - Port for the Prometheus metrics server (default: 3535).
-* --verbose (-v) - Enables debug logging to stderr.
+
+| Option                          | Description                                                              | Default                  |
+| ------------------------------- | ------------------------------------------------------------------------ | ------------------------ |
+| --repeat <int>                  | Number of times to repeat the command (including failed executions).     | Repeat forever           |
+| --retries-on-failure <int>      | Number of retries allowed on failure.                                    | 0                        |
+| --metrics-host <string>         | Host to run embedded metrics HTTP server on.                             | Do not start the server  |
+| --metrics-port <int>            | Port for the metrics HTTP server.                                        | 3535                     |
+| --verbose                       | Enable debug output.                                                     | No extra output          |
+| --help                          | Show this help message and exit.                                         | -                        |
+
+Metrics
+-------
+
+The embedded HTTP server provides Prometheus-compatible metrics (if enabled) at `GET /metrics`.
+* success_total <int>
+* failures_total <int>
 
 Examples
 --------
 
-Run a script and expose metrics on port 9100:
+Run ./script.sh and repeat forever. Exit on failure. Do NOT start the metrics server.
 ```
-rerun --metrics-port 9100 -- ./my-script.sh
+rerun ./script.sh
 ```
-Run a binary and bind the metrics server to a specific interface:
+
+Run ./script.sh 5 times. Exit on failure.
 ```
-rerun --host 0.0.0.0 --port 9090 -- ./my-script.sh
+rerun --repeat 5 -- ./script.sh
 ```
-Enable verbose logging:
+
+Run ./script.sh arg1 arg2 10 times. On failure retry 2 times.
 ```
-rerun --verbose -- ./my-script.sh
+rerun --repeat 10 --retries-on-failure 2 -- ./script.sh arg1 arg2
 ```
-Run command `./my-script.sh -q -w -e` 5 times, retry 2 times on failure, expose metrics on 127.0.0.1:8080:
+
+Run ./script.sh and repeat forever. Start metrics server at 127.0.0.1:8080.
 ```
-rerun --metrics-host 127.0.0.1 --metrics-port 8080 --repeat 5 --retries-on-failure 2 --verbose ./my-script.sh -q -w -e
+rerun --metrics-host 127.0.0.1 --metrics-port 8080 -- ./script.sh
 ```
