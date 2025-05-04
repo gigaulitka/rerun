@@ -1,12 +1,14 @@
 #!/usr/bin/expect -f
 
+# Disable output
+log_user 0
 spawn ./rerun --help
 
 expect {
-    "Usage: ./rerun \\\[--repeat <int>\\\] \\\[--retries-on-failure <int>\\\] \\\[--metrics-host <string>\\\] \\\[--metrics-port <int>\\\] \\\[--verbose\\\]" {
+    "Usage: rerun \\\[OPTIONS\\\] -- <command> \\\[args...\\\]" {
         puts "✅ correct help message"
     }
-    timeout {
+    eof {
         puts "❌ incorrect help message"
         exit 1
     }

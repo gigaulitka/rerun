@@ -1,0 +1,13 @@
+#!/usr/bin/expect -f
+
+spawn ./rerun --unexpected-option
+
+expect {
+    "Usage: rerun \\\[--repeat <int>\\\] \\\[--retries-on-failure <int>\\\] \\\[--metrics-host <string>\\\] \\\[--metrics-port <int>\\\] \\\[--verbose\\\]" {
+        puts "✅ correct usage message"
+    }
+    eof {
+        puts "❌ incorrect usage message"
+        exit 1
+    }
+}

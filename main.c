@@ -32,6 +32,36 @@ struct MetricsThreadArgs {
 static unsigned int verbose = 0;
 
 
+const char *help_message =
+    "Usage: rerun [OPTIONS] -- <command> [args...]\n"
+    "\n"
+    "Restart and monitor the specified command.\n"
+    "\n"
+    "Options:\n"
+    "  -r, --repeat <int>              Number of times to repeat the command (including failed executions).\n"
+    "                                  If not specified, the command is restarted indefinitely.\n"
+    "  -f, --retries-on-failure <int>  Number of retries allowed on failure (default: 0).\n"
+    "  -s, --metrics-host <string>     Host to run embedded metrics HTTP server on.\n"
+    "                                  If not specified, the server will not be started.\n"
+    "  -p, --metrics-port <int>        Port for the metrics HTTP server (default: 3535).\n"
+    "  -v, --verbose                   Enable debug output.\n"
+    "      --help                      Show this help message and exit.\n"
+    "\n"
+    "The embedded HTTP server provides Prometheus-compatible metrics (if enabled) at:\n"
+    "  GET /metrics\n"
+    "    success_total <int>\n"
+    "    failures_total <int>\n"
+    "\n"
+    "Examples:\n"
+    "  rerun --repeat 5 -- ./script.sh\n"
+    "  rerun --repeat 10 --retries-on-failure 2 -- ./script.sh arg1 arg2\n"
+    "  rerun --metrics-host 127.0.0.1 --metrics-port 8080 -- ./script.sh\n";
+
+
+const char *usage_message =
+    "Usage: rerun [--repeat <int>] [--retries-on-failure <int>] [--metrics-host <string>] [--metrics-port <int>] [--verbose]\n";
+
+
 #define LOG(fmt, ...) \
     do { \
         if (verbose) { \
@@ -255,9 +285,10 @@ int main(int argc, char *argv[])
     struct option long_options[] = {
         {"repeat",              required_argument, 0, 'r'},
         {"retries-on-failure",  required_argument, 0, 'f'},
-        {"metrics-host",        required_argument, 0, 'h'},
+        {"metrics-host",        required_argument, 0, 's'},
         {"metrics-port",        required_argument, 0, 'p'},
         {"verbose",             no_argument,       0, 'v'},
+        {"help",                no_argument,       0, 'h'},
         {0, 0, 0, 0}
     };
 
@@ -275,7 +306,7 @@ int main(int argc, char *argv[])
             case 'f':
                 retries_on_failure = atoi(optarg);
                 break;
-            case 'h':
+            case 's':
                 metrics_host = optarg;
                 break;
             case 'p':
@@ -284,8 +315,11 @@ int main(int argc, char *argv[])
             case 'v':
                 verbose = 1;
                 break;
+            case 'h':
+                fprintf(stderr, help_message);
+                return 0;
             default:
-                fprintf(stderr, "Usage: %s [--repeat <int>] [--retries-on-failure <int>] [--metrics-host <string>] [--metrics-port <int>] [--verbose]\n", argv[0]);
+                fprintf(stderr, usage_message);
                 return 1;
         }
     }
