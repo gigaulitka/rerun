@@ -1,0 +1,14 @@
+#!/usr/bin/expect -f
+
+set default_port 3535
+
+spawn ./rerun --metrics-host 127.0.0.1 tests/exit_with_code.sh
+
+set result [exec curl -i -s "http://127.0.0.1:${default_port}"]
+
+if {[string match "* 200 OK*" $result]} {
+    puts "✅ HTTP 200 at default port"
+} else {
+    puts "❌ HTTP code is not 200 at default port"
+    exit 1
+}

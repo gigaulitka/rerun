@@ -1,0 +1,14 @@
+#!/usr/bin/expect -f
+
+set port 59412
+
+spawn ./rerun --metrics-host 127.0.0.1 --metrics-port "$port" tests/exit_with_code.sh
+
+set result [exec curl -i -s "http://127.0.0.1:${port}/this_path_does_not_exist"]
+
+if {[string match "* 404 Not Found*" $result]} {
+    puts "✅ HTTP 404"
+} else {
+    puts "❌ HTTP code is not 404"
+    exit 1
+}

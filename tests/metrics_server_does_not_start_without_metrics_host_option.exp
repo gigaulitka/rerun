@@ -1,0 +1,14 @@
+#!/usr/bin/expect -f
+
+set port 59412
+
+spawn ./rerun tests/exit_with_code.sh
+
+set result [exec sh -c "curl -i -s \"http://127.0.0.1:${port}/metrics\" | true"]
+
+if {[string trim $result] == ""} {
+    puts "✅ metrics server does not start when --metrics-host is not specified"
+} else {
+    puts "❌ metrics server started, --metrics-host is not specified"
+    exit 1
+}
