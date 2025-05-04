@@ -1,0 +1,22 @@
+#!/usr/bin/expect -f
+
+# Disable output
+log_user 0
+spawn ./rerun tests/exit_with_code.sh
+
+set prompts 0
+
+while {$prompts < 42} {
+    expect {
+        "exit with code:" {
+            send "0\r"
+            incr prompts
+        }
+        eof {
+            puts "❌ unexpected exit (no --repeat)"
+            exit 1
+        }
+    }
+}
+
+puts "✅ unlimited repeats (at least 42) (no --repeat)"

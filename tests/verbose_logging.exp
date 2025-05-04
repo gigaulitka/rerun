@@ -1,0 +1,25 @@
+#!/usr/bin/expect -f
+
+spawn ./rerun --verbose --repeat 1 /bin/true
+
+expect {
+    "\\\[DEBUG\\\]" {
+        puts "✅ debug output with --verbose"
+    }
+    eof {
+        puts "❌ no debug output with --verbose"
+        exit 1
+    }
+}
+
+spawn ./rerun --repeat 1 /bin/true
+
+expect {
+    "\\\[DEBUG\\\]" {
+        puts "❌ debug output without --verbose"
+        exit 1
+    }
+    eof {
+        puts "✅ no debug output without --verbose"
+    }
+}

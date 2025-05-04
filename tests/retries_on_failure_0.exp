@@ -1,0 +1,25 @@
+#!/usr/bin/expect -f
+
+spawn ./rerun --retries-on-failure 0 tests/exit_with_code.sh
+
+set prompts 0
+
+expect {
+    "exit with code:" {
+        send "1\r"
+    }
+    eof {
+        puts "❌ unexpected exit"
+        exit 1
+    }
+}
+
+expect {
+    "exit with code:" {
+        puts "❌ unexpected retry (--retries-on-failure 0)"
+        exit 1
+    }
+    eof {
+        puts "✅ exited after failure"
+    }
+}
