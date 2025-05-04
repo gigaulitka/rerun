@@ -316,10 +316,10 @@ int main(int argc, char *argv[])
                 verbose = 1;
                 break;
             case 'h':
-                fprintf(stderr, help_message);
+                fprintf(stderr, "%s", help_message);
                 return 0;
             default:
-                fprintf(stderr, usage_message);
+                fprintf(stderr, "%s", usage_message);
                 return 1;
         }
     }
