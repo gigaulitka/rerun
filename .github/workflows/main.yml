@@ -14,7 +14,7 @@ jobs:
     - name: 🛠 Install dependencies (if needed)
       run: |
         sudo apt-get update
-        sudo apt-get install -y build-essential expect
+        sudo apt-get install -y build-essential libmicrohttpd-dev expect
 
     - name: 👷 Build executable
       run: make build
